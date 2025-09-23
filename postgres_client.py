@@ -5,14 +5,17 @@ from psycopg2.extras import RealDictCursor
 
 class PostgresClient:
     def __init__(self):
-        self.conn = psycopg2.connect(
-            dbname=os.getenv("POSTGRES_DB"),
-            user=os.getenv("POSTGRES_USER"),
-            password=os.getenv("POSTGRES_PASSWORD"),
-            host=os.getenv("POSTGRES_HOST"),
-            port=os.getenv("POSTGRES_PORT", "5432")
-        )
-        self.conn.autocommit = True
+        db_url = os.getenv("DATABASE_URL")
+        if not db_url:
+            raise ValueError("DATABASE_URL is not set in environment variables")
+
+        # Render 내부 Postgres는 SSL 필요
+        self.conn = psycopg2.connect(db_url, sslmode="require")
+        self.cursor = self.conn.cursor()
+
+    def close(self):
+        self.cursor.close()
+        self.conn.close()
 
     def ensure_table(self):
         with self.conn.cursor() as cur:
@@ -25,6 +28,7 @@ class PostgresClient:
                 created_at TIMESTAMP DEFAULT NOW()
             )
             """)
+        self.conn.commit()
         print("✅ purchases table ready")
 
     def insert_purchase(self, txhash, buyer, amount):
@@ -33,6 +37,7 @@ class PostgresClient:
                 "INSERT INTO purchases (txhash, buyer, amount) VALUES (%s, %s, %s) ON CONFLICT (txhash) DO NOTHING",
                 (txhash, buyer, amount)
             )
+            self.conn.commit()
 
     def top_buyers(self, limit=10):
         with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
